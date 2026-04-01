@@ -275,7 +275,7 @@ Issues, feature requests, and PRs are welcome. Some areas where contributions wo
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=JackChen-me/open-multi-agent&type=Date)](https://star-history.com/#JackChen-me/open-multi-agent&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=JackChen-me/open-multi-agent&type=Date&v=20260402)](https://star-history.com/#JackChen-me/open-multi-agent&Date)
 
 ## License
 

@@ -275,7 +275,7 @@ for await (const event of agent.stream('Explain monads in two sentences.')) {
 
 ## Star 趋势
 
-[![Star History Chart](https://api.star-history.com/svg?repos=JackChen-me/open-multi-agent&type=Date)](https://star-history.com/#JackChen-me/open-multi-agent&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=JackChen-me/open-multi-agent&type=Date&v=20260402)](https://star-history.com/#JackChen-me/open-multi-agent&Date)
 
 ## 许可证
 
