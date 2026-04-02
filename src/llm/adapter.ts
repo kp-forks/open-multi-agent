@@ -37,13 +37,17 @@ import type { LLMAdapter } from '../types.js'
  * Additional providers can be integrated by implementing {@link LLMAdapter}
  * directly and bypassing this factory.
  */
-export type SupportedProvider = 'anthropic' | 'openai'
+export type SupportedProvider = 'anthropic' | 'copilot' | 'openai'
 
 /**
  * Instantiate the appropriate {@link LLMAdapter} for the given provider.
  *
- * API keys fall back to the standard environment variables
- * (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) when not supplied explicitly.
+ * API keys fall back to the standard environment variables when not supplied
+ * explicitly:
+ * - `anthropic` → `ANTHROPIC_API_KEY`
+ * - `openai`    → `OPENAI_API_KEY`
+ * - `copilot`   → `GITHUB_COPILOT_TOKEN` / `GITHUB_TOKEN`, or interactive
+ *                  OAuth2 device flow if neither is set
  *
  * Adapters are imported lazily so that projects using only one provider
  * are not forced to install the SDK for the other.
@@ -60,6 +64,10 @@ export async function createAdapter(
     case 'anthropic': {
       const { AnthropicAdapter } = await import('./anthropic.js')
       return new AnthropicAdapter(apiKey)
+    }
+    case 'copilot': {
+      const { CopilotAdapter } = await import('./copilot.js')
+      return new CopilotAdapter(apiKey)
     }
     case 'openai': {
       const { OpenAIAdapter } = await import('./openai.js')
