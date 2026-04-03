@@ -92,6 +92,104 @@ function buildAgent(config: AgentConfig): Agent {
   return new Agent(config, registry, executor)
 }
 
+/** Promise-based delay. */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/** Maximum delay cap to prevent runaway exponential backoff (30 seconds). */
+const MAX_RETRY_DELAY_MS = 30_000
+
+/**
+ * Compute the retry delay for a given attempt, capped at {@link MAX_RETRY_DELAY_MS}.
+ */
+export function computeRetryDelay(
+  baseDelay: number,
+  backoff: number,
+  attempt: number,
+): number {
+  return Math.min(baseDelay * backoff ** (attempt - 1), MAX_RETRY_DELAY_MS)
+}
+
+/**
+ * Execute an agent task with optional retry and exponential backoff.
+ *
+ * Exported for testability — called internally by {@link executeQueue}.
+ *
+ * @param run      - The function that executes the task (typically `pool.run`).
+ * @param task     - The task to execute (retry config read from its fields).
+ * @param onRetry  - Called before each retry sleep with event data.
+ * @param delayFn  - Injectable delay function (defaults to real `sleep`).
+ * @returns The final {@link AgentRunResult} from the last attempt.
+ */
+export async function executeWithRetry(
+  run: () => Promise<AgentRunResult>,
+  task: Task,
+  onRetry?: (data: { attempt: number; maxAttempts: number; error: string; nextDelayMs: number }) => void,
+  delayFn: (ms: number) => Promise<void> = sleep,
+): Promise<AgentRunResult> {
+  const maxAttempts = Math.max(0, task.maxRetries ?? 0) + 1
+  const baseDelay = Math.max(0, task.retryDelayMs ?? 1000)
+  const backoff = Math.max(1, task.retryBackoff ?? 2)
+
+  let lastError: string = ''
+  // Accumulate token usage across all attempts so billing/observability
+  // reflects the true cost of retries.
+  let totalUsage: TokenUsage = { input_tokens: 0, output_tokens: 0 }
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await run()
+      totalUsage = {
+        input_tokens: totalUsage.input_tokens + result.tokenUsage.input_tokens,
+        output_tokens: totalUsage.output_tokens + result.tokenUsage.output_tokens,
+      }
+
+      if (result.success) {
+        return { ...result, tokenUsage: totalUsage }
+      }
+      lastError = result.output
+
+      // Failure — retry or give up
+      if (attempt < maxAttempts) {
+        const delay = computeRetryDelay(baseDelay, backoff, attempt)
+        onRetry?.({ attempt, maxAttempts, error: lastError, nextDelayMs: delay })
+        await delayFn(delay)
+        continue
+      }
+
+      return { ...result, tokenUsage: totalUsage }
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err)
+
+      if (attempt < maxAttempts) {
+        const delay = computeRetryDelay(baseDelay, backoff, attempt)
+        onRetry?.({ attempt, maxAttempts, error: lastError, nextDelayMs: delay })
+        await delayFn(delay)
+        continue
+      }
+
+      // All retries exhausted — return a failure result
+      return {
+        success: false,
+        output: lastError,
+        messages: [],
+        tokenUsage: totalUsage,
+        toolCalls: [],
+      }
+    }
+  }
+
+  // Should not be reached, but TypeScript needs a return
+  return {
+    success: false,
+    output: lastError,
+    messages: [],
+    tokenUsage: totalUsage,
+    toolCalls: [],
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Parsed task spec (result of coordinator decomposition)
 // ---------------------------------------------------------------------------
@@ -239,49 +337,50 @@ async function executeQueue(
       // Build the prompt: inject shared memory context + task description
       const prompt = await buildTaskPrompt(task, team)
 
-      try {
-        const result = await pool.run(assignee, prompt)
-        ctx.agentResults.set(`${assignee}:${task.id}`, result)
-
-        if (result.success) {
-          // Persist result into shared memory so other agents can read it
-          const sharedMem = team.getSharedMemoryInstance()
-          if (sharedMem) {
-            await sharedMem.write(assignee, `task:${task.id}:result`, result.output)
-          }
-
-          queue.complete(task.id, result.output)
-
+      const result = await executeWithRetry(
+        () => pool.run(assignee, prompt),
+        task,
+        (retryData) => {
           config.onProgress?.({
-            type: 'task_complete',
+            type: 'task_retry',
             task: task.id,
             agent: assignee,
-            data: result,
+            data: retryData,
           } satisfies OrchestratorEvent)
+        },
+      )
 
-          config.onProgress?.({
-            type: 'agent_complete',
-            agent: assignee,
-            task: task.id,
-            data: result,
-          } satisfies OrchestratorEvent)
-        } else {
-          queue.fail(task.id, result.output)
-          config.onProgress?.({
-            type: 'error',
-            task: task.id,
-            agent: assignee,
-            data: result,
-          } satisfies OrchestratorEvent)
+      ctx.agentResults.set(`${assignee}:${task.id}`, result)
+
+      if (result.success) {
+        // Persist result into shared memory so other agents can read it
+        const sharedMem = team.getSharedMemoryInstance()
+        if (sharedMem) {
+          await sharedMem.write(assignee, `task:${task.id}:result`, result.output)
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err)
-        queue.fail(task.id, message)
+
+        queue.complete(task.id, result.output)
+
+        config.onProgress?.({
+          type: 'task_complete',
+          task: task.id,
+          agent: assignee,
+          data: result,
+        } satisfies OrchestratorEvent)
+
+        config.onProgress?.({
+          type: 'agent_complete',
+          agent: assignee,
+          task: task.id,
+          data: result,
+        } satisfies OrchestratorEvent)
+      } else {
+        queue.fail(task.id, result.output)
         config.onProgress?.({
           type: 'error',
           task: task.id,
           agent: assignee,
-          data: err,
+          data: result,
         } satisfies OrchestratorEvent)
       }
     })
@@ -574,6 +673,9 @@ export class OpenMultiAgent {
       description: string
       assignee?: string
       dependsOn?: string[]
+      maxRetries?: number
+      retryDelayMs?: number
+      retryBackoff?: number
     }>,
   ): Promise<TeamRunResult> {
     const agentConfigs = team.getAgents()
@@ -586,6 +688,9 @@ export class OpenMultiAgent {
         description: t.description,
         assignee: t.assignee,
         dependsOn: t.dependsOn,
+        maxRetries: t.maxRetries,
+        retryDelayMs: t.retryDelayMs,
+        retryBackoff: t.retryBackoff,
       })),
       agentConfigs,
       queue,
@@ -743,7 +848,11 @@ export class OpenMultiAgent {
    * then resolving them to real IDs before adding tasks to the queue.
    */
   private loadSpecsIntoQueue(
-    specs: ReadonlyArray<ParsedTaskSpec>,
+    specs: ReadonlyArray<ParsedTaskSpec & {
+      maxRetries?: number
+      retryDelayMs?: number
+      retryBackoff?: number
+    }>,
     agentConfigs: AgentConfig[],
     queue: TaskQueue,
   ): void {
@@ -760,6 +869,9 @@ export class OpenMultiAgent {
         assignee: spec.assignee && agentNames.has(spec.assignee)
           ? spec.assignee
           : undefined,
+        maxRetries: spec.maxRetries,
+        retryDelayMs: spec.retryDelayMs,
+        retryBackoff: spec.retryBackoff,
       })
       titleToId.set(spec.title.toLowerCase().trim(), task.id)
       createdTasks.push(task)
