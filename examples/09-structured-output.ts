@@ -1,5 +1,5 @@
 /**
- * Example 10 — Structured Output
+ * Example 09 — Structured Output
  *
  * Demonstrates `outputSchema` on AgentConfig. The agent's response is
  * automatically parsed as JSON and validated against a Zod schema.
@@ -8,7 +8,7 @@
  * The validated result is available via `result.structured`.
  *
  * Run:
- *   npx tsx examples/10-structured-output.ts
+ *   npx tsx examples/09-structured-output.ts
  *
  * Prerequisites:
  *   ANTHROPIC_API_KEY env var must be set.

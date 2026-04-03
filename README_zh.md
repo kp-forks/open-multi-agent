@@ -92,10 +92,6 @@ Success: true
 Tokens: 12847 output tokens
 ```
 
-## 作者
-
-> JackChen — 前 WPS 产品经理，现独立创业者。关注小红书[「杰克西｜硅基杠杆」](https://www.xiaohongshu.com/user/profile/5a1bdc1e4eacab4aa39ea6d6)，持续获取我的 AI Agent 观点和思考。
-
 ## 三种运行模式
 
 | 模式 | 方法 | 适用场景 |
@@ -103,12 +99,6 @@ Tokens: 12847 output tokens
 | 单智能体 | `runAgent()` | 一个智能体，一个提示词——最简入口 |
 | 自动编排团队 | `runTeam()` | 给一个目标，框架自动规划和执行 |
 | 显式任务管线 | `runTasks()` | 你自己定义任务图和分配 |
-
-## 贡献者
-
-<a href="https://github.com/JackChen-me/open-multi-agent/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=JackChen-me/open-multi-agent" />
-</a>
 
 ## 示例
 
@@ -127,8 +117,9 @@ npx tsx examples/01-single-agent.ts
 | [05 — Copilot](examples/05-copilot-test.ts) | GitHub Copilot 作为 LLM 提供者 |
 | [06 — 本地模型](examples/06-local-model.ts) | Ollama + Claude 混合流水线，通过 `baseURL` 接入（兼容 vLLM、LM Studio 等） |
 | [07 — 扇出聚合](examples/07-fan-out-aggregate.ts) | `runParallel()` MapReduce — 3 个分析师并行，然后综合 |
-| [08 — Gemma 4 本地](examples/08-gemma4-local.ts) | 纯本地 Gemma 4 智能体团队 + tool-calling — 零 API 费用 |
-| [09 — Gemma 4 自动编排](examples/09-gemma4-auto-orchestration.ts) | `runTeam()` 用 Gemma 4 当 coordinator — 自动任务拆解，完全本地 |
+| [08 — Gemma 4 本地](examples/08-gemma4-local.ts) | `runTasks()` + `runTeam()` 本地 Gemma 4 via Ollama — 零 API 费用 |
+| [09 — 结构化输出](examples/09-structured-output.ts) | `outputSchema`（Zod）— 校验 JSON 输出，通过 `result.structured` 获取 |
+| [10 — 任务重试](examples/10-task-retry.ts) | `maxRetries` / `retryDelayMs` / `retryBackoff` + `task_retry` 进度事件 |
 
 ## 架构
 
@@ -201,6 +192,16 @@ npx tsx examples/01-single-agent.ts
 - **Provider 集成** — 验证并文档化 OpenAI 兼容 Provider（DeepSeek、Groq、Qwen、MiniMax 等）通过 `baseURL` 接入。详见 [#25](https://github.com/JackChen-me/open-multi-agent/issues/25)。对于非 OpenAI 兼容的 Provider（如 Gemini），欢迎贡献新的 `LLMAdapter` 实现——接口只需两个方法：`chat()` 和 `stream()`。
 - **示例** — 真实场景的工作流和用例。
 - **文档** — 指南、教程和 API 文档。
+
+## 作者
+
+> JackChen — 前 WPS 产品经理，现独立创业者。关注小红书[「杰克西｜硅基杠杆」](https://www.xiaohongshu.com/user/profile/5a1bdc1e4eacab4aa39ea6d6)，持续获取我的 AI Agent 观点和思考。
+
+## 贡献者
+
+<a href="https://github.com/JackChen-me/open-multi-agent/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=JackChen-me/open-multi-agent" />
+</a>
 
 ## Star 趋势
 

@@ -1,15 +1,16 @@
 /**
- * Example 08 — Gemma 4 Local Agent Team (100% Local, Zero API Cost)
+ * Example 08 — Gemma 4 Local (100% Local, Zero API Cost)
  *
- * Demonstrates a fully local multi-agent team using Google's Gemma 4 via
+ * Demonstrates both execution modes with a fully local Gemma 4 model via
  * Ollama. No cloud API keys needed — everything runs on your machine.
  *
- * Two agents collaborate through a task pipeline:
- * - researcher: uses bash + file_write to gather system info and write a report
- * - summarizer: uses file_read to read the report and produce a concise summary
+ * Part 1 — runTasks(): explicit task pipeline (researcher → summarizer)
+ * Part 2 — runTeam(): auto-orchestration where Gemma 4 acts as coordinator,
+ *           decomposes the goal into tasks, and synthesises the final result
  *
- * This pattern works with any Ollama model that supports tool-calling.
- * Gemma 4 (released 2026-04-02) has native tool-calling support.
+ * This is the hardest test for a local model — runTeam() requires it to
+ * produce valid JSON for task decomposition AND do tool-calling for execution.
+ * Gemma 4 e2b (5.1B params) handles both reliably.
  *
  * Run:
  *   no_proxy=localhost npx tsx examples/08-gemma4-local.ts
@@ -38,46 +39,31 @@ const OLLAMA_BASE_URL = 'http://localhost:11434/v1'
 const OUTPUT_DIR = '/tmp/gemma4-demo'
 
 // ---------------------------------------------------------------------------
-// Agents — both use Gemma 4 locally
+// Agents
 // ---------------------------------------------------------------------------
 
-/**
- * Researcher — gathers system information using shell commands.
- */
 const researcher: AgentConfig = {
   name: 'researcher',
   model: OLLAMA_MODEL,
   provider: 'openai',
   baseURL: OLLAMA_BASE_URL,
   apiKey: 'ollama', // placeholder — Ollama ignores this, but the OpenAI SDK requires a non-empty value
-  systemPrompt: `You are a system researcher. Your job is to gather information
-about the current machine using shell commands and write a structured report.
-
-Use the bash tool to run commands like: uname -a, df -h, uptime, and similar
-non-destructive read-only commands.
-On macOS you can also use: sw_vers, sysctl -n hw.memsize.
-On Linux you can also use: cat /etc/os-release, free -h.
-
-Then use file_write to save a Markdown report to ${OUTPUT_DIR}/system-report.md.
-The report should have sections: OS, Hardware, Disk, and Uptime.
-Be concise — one or two lines per section is enough.`,
+  systemPrompt: `You are a system researcher. Use bash to run non-destructive,
+read-only commands (uname -a, sw_vers, df -h, uptime, etc.) and report results.
+Use file_write to save reports when asked.`,
   tools: ['bash', 'file_write'],
   maxTurns: 8,
 }
 
-/**
- * Summarizer — reads the report and writes a one-paragraph executive summary.
- */
 const summarizer: AgentConfig = {
   name: 'summarizer',
   model: OLLAMA_MODEL,
   provider: 'openai',
   baseURL: OLLAMA_BASE_URL,
   apiKey: 'ollama',
-  systemPrompt: `You are a technical writer. Read the system report file provided,
-then produce a concise one-paragraph executive summary (3-5 sentences).
-Focus on the key highlights: what OS, how much RAM, disk status, and uptime.`,
-  tools: ['file_read'],
+  systemPrompt: `You are a technical writer. Read files and produce concise,
+structured Markdown summaries. Use file_write to save reports when asked.`,
+  tools: ['file_read', 'file_write'],
   maxTurns: 4,
 }
 
@@ -85,23 +71,17 @@ Focus on the key highlights: what OS, how much RAM, disk status, and uptime.`,
 // Progress handler
 // ---------------------------------------------------------------------------
 
-const taskTimes = new Map<string, number>()
-
 function handleProgress(event: OrchestratorEvent): void {
   const ts = new Date().toISOString().slice(11, 23)
-
   switch (event.type) {
     case 'task_start': {
-      taskTimes.set(event.task ?? '', Date.now())
       const task = event.data as Task | undefined
       console.log(`[${ts}] TASK START    "${task?.title ?? event.task}" → ${task?.assignee ?? '?'}`)
       break
     }
-    case 'task_complete': {
-      const elapsed = Date.now() - (taskTimes.get(event.task ?? '') ?? Date.now())
-      console.log(`[${ts}] TASK DONE     "${event.task}" in ${(elapsed / 1000).toFixed(1)}s`)
+    case 'task_complete':
+      console.log(`[${ts}] TASK DONE     "${event.task}"`)
       break
-    }
     case 'agent_start':
       console.log(`[${ts}] AGENT START   ${event.agent}`)
       break
@@ -114,32 +94,29 @@ function handleProgress(event: OrchestratorEvent): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Orchestrator + Team
-// ---------------------------------------------------------------------------
+// ═══════════════════════════════════════════════════════════════════════════
+// Part 1: runTasks() — Explicit task pipeline
+// ═══════════════════════════════════════════════════════════════════════════
 
-const orchestrator = new OpenMultiAgent({
+console.log('Part 1: runTasks() — Explicit Pipeline')
+console.log('='.repeat(60))
+console.log(`  model       → ${OLLAMA_MODEL} via Ollama`)
+console.log(`  pipeline    → researcher gathers info → summarizer writes summary`)
+console.log()
+
+const orchestrator1 = new OpenMultiAgent({
   defaultModel: OLLAMA_MODEL,
-  maxConcurrency: 1, // run agents sequentially — local model can only serve one at a time
+  maxConcurrency: 1, // local model serves one request at a time
   onProgress: handleProgress,
 })
 
-const team = orchestrator.createTeam('gemma4-team', {
-  name: 'gemma4-team',
+const team1 = orchestrator1.createTeam('explicit', {
+  name: 'explicit',
   agents: [researcher, summarizer],
   sharedMemory: true,
 })
 
-// ---------------------------------------------------------------------------
-// Task pipeline: research → summarize
-// ---------------------------------------------------------------------------
-
-const tasks: Array<{
-  title: string
-  description: string
-  assignee?: string
-  dependsOn?: string[]
-}> = [
+const tasks = [
   {
     title: 'Gather system information',
     description: `Use bash to run system info commands (uname -a, sw_vers, sysctl, df -h, uptime).
@@ -156,47 +133,59 @@ Produce a concise one-paragraph executive summary of the system information.`,
   },
 ]
 
-// ---------------------------------------------------------------------------
-// Run
-// ---------------------------------------------------------------------------
+const start1 = Date.now()
+const result1 = await orchestrator1.runTasks(team1, tasks)
 
-console.log('Gemma 4 Local Agent Team — Zero API Cost')
-console.log('='.repeat(60))
-console.log(`  model       → ${OLLAMA_MODEL} via Ollama`)
-console.log(`  researcher  → bash + file_write`)
-console.log(`  summarizer  → file_read`)
-console.log(`  output dir  → ${OUTPUT_DIR}`)
-console.log()
-console.log('Pipeline: researcher gathers info → summarizer writes summary')
-console.log('='.repeat(60))
+console.log(`\nSuccess: ${result1.success}  Time: ${((Date.now() - start1) / 1000).toFixed(1)}s`)
+console.log(`Tokens — input: ${result1.totalTokenUsage.input_tokens}, output: ${result1.totalTokenUsage.output_tokens}`)
 
-const start = Date.now()
-const result = await orchestrator.runTasks(team, tasks)
-const totalTime = Date.now() - start
-
-// ---------------------------------------------------------------------------
-// Summary
-// ---------------------------------------------------------------------------
-
-console.log('\n' + '='.repeat(60))
-console.log('Pipeline complete.\n')
-console.log(`Overall success: ${result.success}`)
-console.log(`Total time: ${(totalTime / 1000).toFixed(1)}s`)
-console.log(`Tokens — input: ${result.totalTokenUsage.input_tokens}, output: ${result.totalTokenUsage.output_tokens}`)
-
-console.log('\nPer-agent results:')
-for (const [name, r] of result.agentResults) {
-  const icon = r.success ? 'OK  ' : 'FAIL'
-  const tools = r.toolCalls.map(c => c.toolName).join(', ')
-  console.log(`  [${icon}] ${name.padEnd(12)} tools: ${tools || '(none)'}`)
-}
-
-// Print the summarizer's output
-const summary = result.agentResults.get('summarizer')
+const summary = result1.agentResults.get('summarizer')
 if (summary?.success) {
-  console.log('\nExecutive Summary (from local Gemma 4):')
+  console.log('\nSummary (from local Gemma 4):')
   console.log('-'.repeat(60))
   console.log(summary.output)
+  console.log('-'.repeat(60))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Part 2: runTeam() — Auto-orchestration (Gemma 4 as coordinator)
+// ═══════════════════════════════════════════════════════════════════════════
+
+console.log('\n\nPart 2: runTeam() — Auto-Orchestration')
+console.log('='.repeat(60))
+console.log(`  coordinator  → auto-created by runTeam(), also Gemma 4`)
+console.log(`  goal         → given in natural language, framework plans everything`)
+console.log()
+
+const orchestrator2 = new OpenMultiAgent({
+  defaultModel: OLLAMA_MODEL,
+  defaultProvider: 'openai',
+  defaultBaseURL: OLLAMA_BASE_URL,
+  defaultApiKey: 'ollama',
+  maxConcurrency: 1,
+  onProgress: handleProgress,
+})
+
+const team2 = orchestrator2.createTeam('auto', {
+  name: 'auto',
+  agents: [researcher, summarizer],
+  sharedMemory: true,
+})
+
+const goal = `Check this machine's Node.js version, npm version, and OS info,
+then write a short Markdown summary report to /tmp/gemma4-auto/report.md`
+
+const start2 = Date.now()
+const result2 = await orchestrator2.runTeam(team2, goal)
+
+console.log(`\nSuccess: ${result2.success}  Time: ${((Date.now() - start2) / 1000).toFixed(1)}s`)
+console.log(`Tokens — input: ${result2.totalTokenUsage.input_tokens}, output: ${result2.totalTokenUsage.output_tokens}`)
+
+const coordResult = result2.agentResults.get('coordinator')
+if (coordResult?.success) {
+  console.log('\nFinal synthesis (from local Gemma 4 coordinator):')
+  console.log('-'.repeat(60))
+  console.log(coordResult.output)
   console.log('-'.repeat(60))
 }
 

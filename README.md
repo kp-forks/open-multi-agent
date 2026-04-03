@@ -100,12 +100,6 @@ Tokens: 12847 output tokens
 | Auto-orchestrated team | `runTeam()` | Give a goal, framework plans and executes |
 | Explicit pipeline | `runTasks()` | You define the task graph and assignments |
 
-## Contributors
-
-<a href="https://github.com/JackChen-me/open-multi-agent/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=JackChen-me/open-multi-agent" />
-</a>
-
 ## Examples
 
 All examples are runnable scripts in [`examples/`](./examples/). Run any of them with `npx tsx`:
@@ -123,10 +117,9 @@ npx tsx examples/01-single-agent.ts
 | [05 — Copilot](examples/05-copilot-test.ts) | GitHub Copilot as an LLM provider |
 | [06 — Local Model](examples/06-local-model.ts) | Ollama + Claude in one pipeline via `baseURL` (works with vLLM, LM Studio, etc.) |
 | [07 — Fan-Out / Aggregate](examples/07-fan-out-aggregate.ts) | `runParallel()` MapReduce — 3 analysts in parallel, then synthesize |
-| [08 — Gemma 4 Local](examples/08-gemma4-local.ts) | Pure-local Gemma 4 agent team with tool-calling — zero API cost |
-| [09 — Gemma 4 Auto-Orchestration](examples/09-gemma4-auto-orchestration.ts) | `runTeam()` with Gemma 4 as coordinator — auto task decomposition, fully local |
-| [10 — Structured Output](examples/10-structured-output.ts) | `outputSchema` (Zod) on AgentConfig — validated JSON via `result.structured` |
-| [11 — Task Retry](examples/11-task-retry.ts) | `maxRetries` / `retryDelayMs` / `retryBackoff` with `task_retry` progress events |
+| [08 — Gemma 4 Local](examples/08-gemma4-local.ts) | `runTasks()` + `runTeam()` with local Gemma 4 via Ollama — zero API cost |
+| [09 — Structured Output](examples/09-structured-output.ts) | `outputSchema` (Zod) on AgentConfig — validated JSON via `result.structured` |
+| [10 — Task Retry](examples/10-task-retry.ts) | `maxRetries` / `retryDelayMs` / `retryBackoff` with `task_retry` progress events |
 
 ## Architecture
 
@@ -199,6 +192,16 @@ Issues, feature requests, and PRs are welcome. Some areas where contributions wo
 - **Provider integrations** — Verify and document OpenAI-compatible providers (DeepSeek, Groq, Qwen, MiniMax, etc.) via `baseURL`. See [#25](https://github.com/JackChen-me/open-multi-agent/issues/25). For providers that are NOT OpenAI-compatible (e.g. Gemini), a new `LLMAdapter` implementation is welcome — the interface requires just two methods: `chat()` and `stream()`.
 - **Examples** — Real-world workflows and use cases.
 - **Documentation** — Guides, tutorials, and API docs.
+
+## Author
+
+> JackChen — Ex PM (¥100M+ revenue), now indie builder. Follow on [X](https://x.com/JackChen_x) for AI Agent insights.
+
+## Contributors
+
+<a href="https://github.com/JackChen-me/open-multi-agent/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=JackChen-me/open-multi-agent" />
+</a>
 
 ## Star History
 

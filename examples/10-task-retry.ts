@@ -1,5 +1,5 @@
 /**
- * Example 11 — Task Retry with Exponential Backoff
+ * Example 10 — Task Retry with Exponential Backoff
  *
  * Demonstrates `maxRetries`, `retryDelayMs`, and `retryBackoff` on task config.
  * When a task fails, the framework automatically retries with exponential
@@ -10,7 +10,7 @@
  * to retry on failure, and the second task (analysis) depends on it.
  *
  * Run:
- *   npx tsx examples/11-task-retry.ts
+ *   npx tsx examples/10-task-retry.ts
  *
  * Prerequisites:
  *   ANTHROPIC_API_KEY env var must be set.
