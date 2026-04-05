@@ -78,6 +78,11 @@ export interface RunOptions {
   readonly onToolResult?: (name: string, result: ToolResult) => void
   /** Fired after each complete {@link LLMMessage} is appended. */
   readonly onMessage?: (message: LLMMessage) => void
+  /**
+   * Fired when the runner detects a potential configuration issue.
+   * For example, when a model appears to ignore tool definitions.
+   */
+  readonly onWarning?: (message: string) => void
   /** Trace callback for observability spans. Async callbacks are safe. */
   readonly onTrace?: (event: TraceEvent) => void | Promise<void>
   /** Run ID for trace correlation. */
@@ -86,6 +91,11 @@ export interface RunOptions {
   readonly taskId?: string
   /** Agent name for trace correlation (overrides RunnerOptions.agentName). */
   readonly traceAgent?: string
+  /**
+   * Per-call abort signal. When set, takes precedence over the static
+   * {@link RunnerOptions.abortSignal}. Useful for per-run timeouts.
+   */
+  readonly abortSignal?: AbortSignal
 }
 
 /** The aggregated result returned when a full run completes. */
@@ -235,13 +245,16 @@ export class AgentRunner {
       ? allDefs.filter(d => this.options.allowedTools!.includes(d.name))
       : allDefs
 
+    // Per-call abortSignal takes precedence over the static one.
+    const effectiveAbortSignal = options.abortSignal ?? this.options.abortSignal
+
     const baseChatOptions: LLMChatOptions = {
       model: this.options.model,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       maxTokens: this.options.maxTokens,
       temperature: this.options.temperature,
       systemPrompt: this.options.systemPrompt,
-      abortSignal: this.options.abortSignal,
+      abortSignal: effectiveAbortSignal,
     }
 
     try {
@@ -250,7 +263,7 @@ export class AgentRunner {
       // -----------------------------------------------------------------
       while (true) {
         // Respect abort before each LLM call.
-        if (this.options.abortSignal?.aborted) {
+        if (effectiveAbortSignal?.aborted) {
           break
         }
 
@@ -311,6 +324,15 @@ export class AgentRunner {
         // Step 3: Decide whether to continue looping.
         // ------------------------------------------------------------------
         if (toolUseBlocks.length === 0) {
+          // Warn on first turn if tools were provided but model didn't use them.
+          if (turns === 1 && toolDefs.length > 0 && options.onWarning) {
+            const agentName = this.options.agentName ?? 'unknown'
+            options.onWarning(
+              `Agent "${agentName}" has ${toolDefs.length} tool(s) available but the model ` +
+              `returned no tool calls. If using a local model, verify it supports tool calling ` +
+              `(see https://ollama.com/search?c=tools).`,
+            )
+          }
           // No tools requested — this is the terminal assistant turn.
           finalOutput = turnText
           break

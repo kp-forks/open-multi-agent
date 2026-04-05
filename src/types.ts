@@ -210,6 +210,12 @@ export interface AgentConfig {
   readonly maxTokens?: number
   readonly temperature?: number
   /**
+   * Maximum wall-clock time (in milliseconds) for the entire agent run.
+   * When exceeded, the run is aborted via `AbortSignal.timeout()`.
+   * Useful for local models where inference can be unpredictably slow.
+   */
+  readonly timeoutMs?: number
+  /**
    * Optional Zod schema for structured output.  When set, the agent's final
    * output is parsed as JSON and validated against this schema.  A single
    * retry with error feedback is attempted on validation failure.

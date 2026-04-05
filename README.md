@@ -197,6 +197,33 @@ Verified local models with tool-calling: **Gemma 4** (see [example 08](examples/
 
 Any OpenAI-compatible API should work via `provider: 'openai'` + `baseURL` (DeepSeek, Groq, Mistral, Qwen, MiniMax, etc.). **Grok now has first-class support** via `provider: 'grok'`.
 
+### Local Model Tool-Calling
+
+The framework supports tool-calling with local models served by Ollama, vLLM, LM Studio, or llama.cpp. Tool-calling is handled natively by these servers via the OpenAI-compatible API.
+
+**Verified models:** Gemma 4, Llama 3.1, Qwen 3, Mistral, Phi-4. See the full list at [ollama.com/search?c=tools](https://ollama.com/search?c=tools).
+
+**Fallback extraction:** If a local model returns tool calls as text instead of using the `tool_calls` wire format (common with thinking models or misconfigured servers), the framework automatically extracts them from the text output.
+
+**Timeout:** Local inference can be slow. Use `timeoutMs` on `AgentConfig` to prevent indefinite hangs:
+
+```typescript
+const localAgent: AgentConfig = {
+  name: 'local',
+  model: 'llama3.1',
+  provider: 'openai',
+  baseURL: 'http://localhost:11434/v1',
+  apiKey: 'ollama',
+  tools: ['bash', 'file_read'],
+  timeoutMs: 120_000, // abort after 2 minutes
+}
+```
+
+**Troubleshooting:**
+- Model not calling tools? Ensure it appears in Ollama's [Tools category](https://ollama.com/search?c=tools). Not all models support tool-calling.
+- Using Ollama? Update to the latest version (`ollama update`) — older versions have known tool-calling bugs.
+- Proxy interfering? Use `no_proxy=localhost` when running against local servers.
+
 ### LLM Configuration Examples
 
 ```typescript
