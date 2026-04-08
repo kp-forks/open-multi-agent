@@ -42,6 +42,7 @@ function createMockAdapter(responses: string[]): LLMAdapter {
  * We need to do this at the module level because Agent calls createAdapter internally.
  */
 let mockAdapterResponses: string[] = []
+let capturedChatOptions: LLMChatOptions[] = []
 
 vi.mock('../src/llm/adapter.js', () => ({
   createAdapter: async () => {
@@ -49,6 +50,7 @@ vi.mock('../src/llm/adapter.js', () => ({
     return {
       name: 'mock',
       async chat(_msgs: LLMMessage[], options: LLMChatOptions): Promise<LLMResponse> {
+        capturedChatOptions.push(options)
         const text = mockAdapterResponses[callIndex] ?? 'default mock response'
         callIndex++
         return {
@@ -94,6 +96,7 @@ function teamCfg(agents?: AgentConfig[]): TeamConfig {
 describe('OpenMultiAgent', () => {
   beforeEach(() => {
     mockAdapterResponses = []
+    capturedChatOptions = []
   })
 
   describe('createTeam', () => {
@@ -236,6 +239,149 @@ describe('OpenMultiAgent', () => {
       const result = await oma.runTeam(team, 'First design the database schema, then implement the REST API endpoints')
 
       expect(result.success).toBe(true)
+    })
+
+    it('supports coordinator model override without affecting workers', async () => {
+      mockAdapterResponses = [
+        '```json\n[{"title": "Research", "description": "Research", "assignee": "worker-a"}]\n```',
+        'worker output',
+        'final synthesis',
+      ]
+
+      const oma = new OpenMultiAgent({
+        defaultModel: 'expensive-model',
+        defaultProvider: 'openai',
+      })
+      const team = oma.createTeam('t', teamCfg([
+        { ...agentConfig('worker-a'), model: 'worker-model' },
+      ]))
+
+      const result = await oma.runTeam(team, 'First research the topic, then synthesize findings', {
+        coordinator: { model: 'cheap-model' },
+      })
+
+      expect(result.success).toBe(true)
+      expect(capturedChatOptions.length).toBe(3)
+      expect(capturedChatOptions[0]?.model).toBe('cheap-model')
+      expect(capturedChatOptions[1]?.model).toBe('worker-model')
+      expect(capturedChatOptions[2]?.model).toBe('cheap-model')
+    })
+
+    it('appends coordinator.instructions to the default system prompt', async () => {
+      mockAdapterResponses = [
+        '```json\n[{"title": "Plan", "description": "Plan", "assignee": "worker-a"}]\n```',
+        'done',
+        'final',
+      ]
+
+      const oma = new OpenMultiAgent({
+        defaultModel: 'mock-model',
+        defaultProvider: 'openai',
+      })
+      const team = oma.createTeam('t', teamCfg([
+        { ...agentConfig('worker-a'), model: 'worker-model' },
+      ]))
+
+      await oma.runTeam(team, 'First implement, then verify', {
+        coordinator: {
+          instructions: 'Always create a testing task after implementation tasks.',
+        },
+      })
+
+      const coordinatorPrompt = capturedChatOptions[0]?.systemPrompt ?? ''
+      expect(coordinatorPrompt).toContain('You are a task coordinator responsible')
+      expect(coordinatorPrompt).toContain('## Additional Instructions')
+      expect(coordinatorPrompt).toContain('Always create a testing task after implementation tasks.')
+    })
+
+    it('uses coordinator.systemPrompt override while still appending required sections', async () => {
+      mockAdapterResponses = [
+        '```json\n[{"title": "Plan", "description": "Plan", "assignee": "worker-a"}]\n```',
+        'done',
+        'final',
+      ]
+
+      const oma = new OpenMultiAgent({
+        defaultModel: 'mock-model',
+        defaultProvider: 'openai',
+      })
+      const team = oma.createTeam('t', teamCfg([
+        { ...agentConfig('worker-a'), model: 'worker-model' },
+      ]))
+
+      await oma.runTeam(team, 'First implement, then verify', {
+        coordinator: {
+          systemPrompt: 'You are a custom coordinator for monorepo planning.',
+        },
+      })
+
+      const coordinatorPrompt = capturedChatOptions[0]?.systemPrompt ?? ''
+      expect(coordinatorPrompt).toContain('You are a custom coordinator for monorepo planning.')
+      expect(coordinatorPrompt).toContain('## Team Roster')
+      expect(coordinatorPrompt).toContain('## Output Format')
+      expect(coordinatorPrompt).toContain('## When synthesising results')
+      expect(coordinatorPrompt).not.toContain('You are a task coordinator responsible')
+    })
+
+    it('applies advanced coordinator options (maxTokens, temperature, tools, disallowedTools)', async () => {
+      mockAdapterResponses = [
+        '```json\n[{"title": "Inspect", "description": "Inspect", "assignee": "worker-a"}]\n```',
+        'worker output',
+        'final synthesis',
+      ]
+
+      const oma = new OpenMultiAgent({
+        defaultModel: 'mock-model',
+        defaultProvider: 'openai',
+      })
+      const team = oma.createTeam('t', teamCfg([
+        { ...agentConfig('worker-a'), model: 'worker-model' },
+      ]))
+
+      await oma.runTeam(team, 'First inspect project, then produce output', {
+        coordinator: {
+          maxTurns: 5,
+          maxTokens: 1234,
+          temperature: 0,
+          tools: ['file_read', 'grep'],
+          disallowedTools: ['grep'],
+          timeoutMs: 1500,
+          loopDetection: { maxRepetitions: 2, loopDetectionWindow: 3 },
+        },
+      })
+
+      expect(capturedChatOptions[0]?.maxTokens).toBe(1234)
+      expect(capturedChatOptions[0]?.temperature).toBe(0)
+      expect(capturedChatOptions[0]?.tools).toBeDefined()
+      expect(capturedChatOptions[0]?.tools?.map((t) => t.name)).toContain('file_read')
+      expect(capturedChatOptions[0]?.tools?.map((t) => t.name)).not.toContain('grep')
+    })
+
+    it('supports coordinator.toolPreset and intersects with tools allowlist', async () => {
+      mockAdapterResponses = [
+        '```json\n[{"title": "Inspect", "description": "Inspect", "assignee": "worker-a"}]\n```',
+        'worker output',
+        'final synthesis',
+      ]
+
+      const oma = new OpenMultiAgent({
+        defaultModel: 'mock-model',
+        defaultProvider: 'openai',
+      })
+      const team = oma.createTeam('t', teamCfg([
+        { ...agentConfig('worker-a'), model: 'worker-model' },
+      ]))
+
+      await oma.runTeam(team, 'First inspect project, then produce output', {
+        coordinator: {
+          toolPreset: 'readonly',
+          tools: ['file_read', 'bash'],
+        },
+      })
+
+      const coordinatorToolNames = capturedChatOptions[0]?.tools?.map((t) => t.name) ?? []
+      expect(coordinatorToolNames).toContain('file_read')
+      expect(coordinatorToolNames).not.toContain('bash')
     })
   })
 

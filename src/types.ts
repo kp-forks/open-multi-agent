@@ -422,6 +422,43 @@ export interface OrchestratorConfig {
   readonly onApproval?: (completedTasks: readonly Task[], nextTasks: readonly Task[]) => Promise<boolean>
 }
 
+/**
+ * Optional overrides for the temporary coordinator agent created by `runTeam`.
+ *
+ * All fields are optional. Unset fields fall back to orchestrator defaults
+ * (or coordinator built-in defaults where applicable).
+ */
+export interface CoordinatorConfig {
+  /** Coordinator model. Defaults to `OrchestratorConfig.defaultModel`. */
+  readonly model?: string
+  readonly provider?: 'anthropic' | 'copilot' | 'grok' | 'openai' | 'gemini'
+  readonly baseURL?: string
+  readonly apiKey?: string
+  /**
+   * Full system prompt override. When set, this replaces the default
+   * coordinator preamble and decomposition guidance.
+   *
+   * Team roster, output format, and synthesis sections are still appended.
+   */
+  readonly systemPrompt?: string
+  /**
+   * Additional instructions appended to the default coordinator prompt.
+   * Ignored when `systemPrompt` is provided.
+   */
+  readonly instructions?: string
+  readonly maxTurns?: number
+  readonly maxTokens?: number
+  readonly temperature?: number
+  /** Predefined tool preset for common coordinator use cases. */
+  readonly toolPreset?: 'readonly' | 'readwrite' | 'full'
+  /** Tool names available to the coordinator. */
+  readonly tools?: readonly string[]
+  /** Tool names explicitly denied to the coordinator. */
+  readonly disallowedTools?: readonly string[]
+  readonly loopDetection?: LoopDetectionConfig
+  readonly timeoutMs?: number
+}
+
 // ---------------------------------------------------------------------------
 // Trace events — lightweight observability spans
 // ---------------------------------------------------------------------------

@@ -44,6 +44,7 @@
 import type {
   AgentConfig,
   AgentRunResult,
+  CoordinatorConfig,
   OrchestratorConfig,
   OrchestratorEvent,
   Task,
@@ -825,8 +826,13 @@ export class OpenMultiAgent {
    * @param team - A team created via {@link createTeam} (or `new Team(...)`).
    * @param goal - High-level natural-language goal for the team.
    */
-  async runTeam(team: Team, goal: string, options?: { abortSignal?: AbortSignal }): Promise<TeamRunResult> {
+  async runTeam(
+    team: Team,
+    goal: string,
+    options?: { abortSignal?: AbortSignal; coordinator?: CoordinatorConfig },
+  ): Promise<TeamRunResult> {
     const agentConfigs = team.getAgents()
+    const coordinatorOverrides = options?.coordinator
 
     // ------------------------------------------------------------------
     // Short-circuit: skip coordinator for simple, single-action goals.
@@ -899,12 +905,19 @@ export class OpenMultiAgent {
     // ------------------------------------------------------------------
     const coordinatorConfig: AgentConfig = {
       name: 'coordinator',
-      model: this.config.defaultModel,
-      provider: this.config.defaultProvider,
-      baseURL: this.config.defaultBaseURL,
-      apiKey: this.config.defaultApiKey,
-      systemPrompt: this.buildCoordinatorSystemPrompt(agentConfigs),
-      maxTurns: 3,
+      model: coordinatorOverrides?.model ?? this.config.defaultModel,
+      provider: coordinatorOverrides?.provider ?? this.config.defaultProvider,
+      baseURL: coordinatorOverrides?.baseURL ?? this.config.defaultBaseURL,
+      apiKey: coordinatorOverrides?.apiKey ?? this.config.defaultApiKey,
+      systemPrompt: this.buildCoordinatorPrompt(agentConfigs, coordinatorOverrides),
+      maxTurns: coordinatorOverrides?.maxTurns ?? 3,
+      maxTokens: coordinatorOverrides?.maxTokens,
+      temperature: coordinatorOverrides?.temperature,
+      toolPreset: coordinatorOverrides?.toolPreset,
+      tools: coordinatorOverrides?.tools,
+      disallowedTools: coordinatorOverrides?.disallowedTools,
+      loopDetection: coordinatorOverrides?.loopDetection,
+      timeoutMs: coordinatorOverrides?.timeoutMs,
     }
 
     const decompositionPrompt = this.buildDecompositionPrompt(goal, agentConfigs)
@@ -1149,6 +1162,47 @@ export class OpenMultiAgent {
 
   /** Build the system prompt given to the coordinator agent. */
   private buildCoordinatorSystemPrompt(agents: AgentConfig[]): string {
+    return [
+      'You are a task coordinator responsible for decomposing high-level goals',
+      'into concrete, actionable tasks and assigning them to the right team members.',
+      '',
+      this.buildCoordinatorRosterSection(agents),
+      '',
+      this.buildCoordinatorOutputFormatSection(),
+      '',
+      this.buildCoordinatorSynthesisSection(),
+    ].join('\n')
+  }
+
+  /** Build coordinator system prompt with optional caller overrides. */
+  private buildCoordinatorPrompt(agents: AgentConfig[], config?: CoordinatorConfig): string {
+    if (config?.systemPrompt) {
+      return [
+        config.systemPrompt,
+        '',
+        this.buildCoordinatorRosterSection(agents),
+        '',
+        this.buildCoordinatorOutputFormatSection(),
+        '',
+        this.buildCoordinatorSynthesisSection(),
+      ].join('\n')
+    }
+
+    const base = this.buildCoordinatorSystemPrompt(agents)
+    if (!config?.instructions) {
+      return base
+    }
+
+    return [
+      base,
+      '',
+      '## Additional Instructions',
+      config.instructions,
+    ].join('\n')
+  }
+
+  /** Build the coordinator team roster section. */
+  private buildCoordinatorRosterSection(agents: AgentConfig[]): string {
     const roster = agents
       .map(
         (a) =>
@@ -1157,12 +1211,14 @@ export class OpenMultiAgent {
       .join('\n')
 
     return [
-      'You are a task coordinator responsible for decomposing high-level goals',
-      'into concrete, actionable tasks and assigning them to the right team members.',
-      '',
       '## Team Roster',
       roster,
-      '',
+    ].join('\n')
+  }
+
+  /** Build the coordinator JSON output-format section. */
+  private buildCoordinatorOutputFormatSection(): string {
+    return [
       '## Output Format',
       'When asked to decompose a goal, respond ONLY with a JSON array of task objects.',
       'Each task must have:',
@@ -1173,7 +1229,12 @@ export class OpenMultiAgent {
       '',
       'Wrap the JSON in a ```json code fence.',
       'Do not include any text outside the code fence.',
-      '',
+    ].join('\n')
+  }
+
+  /** Build the coordinator synthesis guidance section. */
+  private buildCoordinatorSynthesisSection(): string {
+    return [
       '## When synthesising results',
       'You will be given completed task outputs and asked to synthesise a final answer.',
       'Write a clear, comprehensive response that addresses the original goal.',

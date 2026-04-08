@@ -165,6 +165,7 @@ export type {
   // Orchestrator
   OrchestratorConfig,
   OrchestratorEvent,
+  CoordinatorConfig,
 
   // Trace
   TraceEventType,
