@@ -34,7 +34,7 @@ These are protocols we see strategic value in and are actively tracking. We're w
 
 **Approach**: Optional peer dependency (`@modelcontextprotocol/sdk`). Zero impact on the core — if you don't use MCP, you don't pay for it. This preserves our minimal-dependency principle while connecting to the broader tool ecosystem.
 
-**Tracking**: #84 (planned)
+**Tracking**: #86
 
 ### 4. A2A Protocol (Agent-to-Agent)
 
