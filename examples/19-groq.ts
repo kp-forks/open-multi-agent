@@ -12,7 +12,6 @@
  *
  * Available models:
  *   llama-3.3-70b-versatile       — Groq production model (recommended for coding tasks)
- *   mixtral-8x7b-32768            — Groq fast mixture-of-experts model
  *   deepseek-r1-distill-llama-70b — Groq reasoning model
  */
 
